@@ -134,9 +134,20 @@
 }
 
 .controls__bets button:disabled,
+.controls__withdraw:disabled,
 .controls__spin:disabled,
 .modal__card button:disabled {
   opacity: 0.55;
+}
+
+.controls__withdraw {
+  border: 1px solid rgba(255, 214, 130, 0.6);
+  border-radius: 0.65rem;
+  color: #fff3d1;
+  background: linear-gradient(180deg, #3f1739 0%, #2a1026 100%);
+  padding: 0.6rem 0.8rem;
+  font-weight: 700;
+  touch-action: manipulation;
 }
 
 .controls__spin {
@@ -446,6 +457,11 @@
   .controls__spin {
     min-height: 3.35rem;
     font-size: 1.08rem;
+  }
+
+  .controls__withdraw {
+    min-height: 2.75rem;
+    font-size: 0.9rem;
   }
 
   .controls__status {

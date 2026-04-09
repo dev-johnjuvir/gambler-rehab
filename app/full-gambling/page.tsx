@@ -351,6 +351,10 @@ export default function FullGamblingPage() {
             </button>
           </div>
 
+          <button className={styles.controls__withdraw} onClick={() => void 0}>
+            Withdraw
+          </button>
+
           <button className={styles.controls__spin} onClick={runSpin} disabled={!canSpin}>
             {isBreakActive ? `Break ${breakSecondsRemaining}s` : spinning ? "Spinning" : "Spin"}
           </button>
