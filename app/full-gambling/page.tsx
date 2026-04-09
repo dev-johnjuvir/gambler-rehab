@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import Link from "next/link";
-import { createIdleReels, createSpinResult, getSymbol, SLOT_CONFIG } from "@/lib/slot/engine";
+import {
+  createIdleReels,
+  createSpinResult,
+  getBonusSpinsForScatter,
+  getSymbol,
+  SLOT_CONFIG,
+} from "@/lib/slot/engine";
 import { sanitizePersistedState } from "@/lib/slot/state";
 import type { PersistedGameState, SpinResult, SymbolId } from "@/lib/slot/types";
 import styles from "./page.module.scss";
@@ -57,6 +63,8 @@ export default function FullGamblingPage() {
   });
 
   const [spinning, setSpinning] = useState(false);
+  const [autoSpinActive, setAutoSpinActive] = useState(false);
+  const [freeSpins, setFreeSpins] = useState(0);
   const [rollingReels, setRollingReels] = useState<SymbolId[][] | null>(null);
   const [pendingResult, setPendingResult] = useState<SpinResult | null>(null);
   const [reelStopCount, setReelStopCount] = useState(0);
@@ -74,7 +82,7 @@ export default function FullGamblingPage() {
   const displayedReels = rollingReels ?? lastSpin?.reels ?? idleReels;
   const isBreakActive = breakUntil !== null && breakUntil > clockNow;
   const breakSecondsRemaining = breakUntil ? Math.max(0, Math.ceil((breakUntil - clockNow) / 1000)) : 0;
-  const canSpin = !spinning && !isBreakActive && credits >= bet;
+  const canSpin = !spinning && !isBreakActive && (freeSpins > 0 || credits >= bet);
 
   const winningCells = useMemo(() => {
     if (!lastSpin) {
@@ -174,7 +182,9 @@ export default function FullGamblingPage() {
       return;
     }
 
-    if (credits < bet) {
+    const usingFreeSpin = freeSpins > 0;
+
+    if (!usingFreeSpin && credits < bet) {
       setStatusMessage("Insufficient balance.");
       return;
     }
@@ -189,9 +199,14 @@ export default function FullGamblingPage() {
     setPendingResult(resolved);
     setReelStopCount(0);
     setLastSpin(null);
-    setStatusMessage("Spinning...");
+    setStatusMessage(usingFreeSpin ? "Spinning a bonus spin..." : "Spinning...");
 
-    setCredits((current) => Math.max(0, current - bet));
+    if (usingFreeSpin) {
+      setFreeSpins((count) => Math.max(0, count - 1));
+    } else {
+      setCredits((current) => Math.max(0, current - bet));
+    }
+
     setStats((current) => ({ ...current, spins: current.spins + 1 }));
 
     reelStopTimersRef.current = Array.from({ length: SLOT_CONFIG.reels }, (_, reelIndex) =>
@@ -208,6 +223,16 @@ export default function FullGamblingPage() {
       setPendingResult(null);
       setLastSpin(resolved);
 
+      const scatterCount = resolved.scatterWin?.count ?? 0;
+      const bonusSpinsAwarded = getBonusSpinsForScatter(scatterCount);
+      const nextCredits = Math.max(0, (usingFreeSpin ? credits : credits - bet) + resolved.totalPayout);
+      const nextFreeSpins = Math.max(0, freeSpins - (usingFreeSpin ? 1 : 0)) + bonusSpinsAwarded;
+      const shouldStopAuto = autoSpinActive && nextFreeSpins <= 0 && nextCredits < bet;
+
+      if (bonusSpinsAwarded > 0) {
+        setFreeSpins((count) => count + bonusSpinsAwarded);
+      }
+
       if (resolved.totalPayout > 0) {
         setCredits((current) => current + resolved.totalPayout);
         setStats((current) => ({
@@ -221,13 +246,61 @@ export default function FullGamblingPage() {
         setBreakUntil(nextBreakUntil);
         setLastWinAmount(resolved.totalPayout);
         setShowWinModal(true);
+
+        if (shouldStopAuto || autoSpinActive) {
+          setAutoSpinActive(false);
+        }
+
+        if (resolved.scatterWin && bonusSpinsAwarded > 0) {
+          setStatusMessage(
+            `Won ${formatPeso(resolved.totalPayout)} (x${resolved.scatterWin.multiplier} scatter)! +${bonusSpinsAwarded} bonus spins. Betting is paused for 2 minutes.`,
+          );
+          return;
+        }
+
+        if (resolved.scatterWin) {
+          setStatusMessage(
+            `Won ${formatPeso(resolved.totalPayout)} (x${resolved.scatterWin.multiplier} scatter)! Betting is paused for 2 minutes.`,
+          );
+          return;
+        }
+
         setStatusMessage("You won. Betting is paused for 2 minutes.");
         return;
       }
 
-      setStatusMessage("No payout. Try again.");
+      if (bonusSpinsAwarded > 0) {
+        setStatusMessage(
+          shouldStopAuto
+            ? `No payout, but +${bonusSpinsAwarded} bonus spins from scatter. Auto spin stopped.`
+            : `No payout, but +${bonusSpinsAwarded} bonus spins from scatter.`,
+        );
+        if (shouldStopAuto) {
+          setAutoSpinActive(false);
+        }
+        return;
+      }
+
+      setStatusMessage(shouldStopAuto ? "No payout. Auto spin stopped." : "No payout. Try again.");
+      if (shouldStopAuto) {
+        setAutoSpinActive(false);
+      }
     }, SPIN_DURATION_MS);
-  }, [bet, credits, isBreakActive, spinning]);
+  }, [autoSpinActive, bet, credits, freeSpins, isBreakActive, spinning]);
+
+  useEffect(() => {
+    if (!autoSpinActive || spinning || !canSpin || showBrokeModal || showWinModal) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      runSpin();
+    }, 250);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [autoSpinActive, canSpin, runSpin, showBrokeModal, showWinModal, spinning]);
 
   useEffect(() => {
     if (!hydrated || spinning || showBrokeModal || showWinModal) {
@@ -250,6 +323,9 @@ export default function FullGamblingPage() {
 
   const handleReset = () => {
     setCredits(STARTING_CREDITS);
+    setFreeSpins(0);
+    setAutoSpinActive(false);
+    setBreakUntil(null);
     setStats({ spins: 0, wins: 0, totalWon: 0, biggestWin: 0 });
     setLastSpin(null);
     setShowBrokeModal(false);
@@ -334,6 +410,11 @@ export default function FullGamblingPage() {
             <p>Balance: {formatPeso(credits)}</p>
             <p>Bet: {formatPeso(bet)}</p>
             <p>Last win: {formatPeso(lastSpin?.totalPayout ?? 0)}</p>
+            <p>Bonus spins: {freeSpins}</p>
+            <p>
+              Last scatter multiplier: x
+              {lastSpin?.scatterWin?.multiplier ?? 0}
+            </p>
           </div>
 
           <div className={styles.controls__bets}>
@@ -361,6 +442,31 @@ export default function FullGamblingPage() {
           <button className={styles.controls__spin} onClick={runSpin} disabled={!canSpin}>
             {isBreakActive ? `Break ${breakSecondsRemaining}s` : spinning ? "Spinning" : "Spin"}
           </button>
+
+          {!autoSpinActive ? (
+            <button
+              className={styles.controls__spin}
+              onClick={() => {
+                if (!spinning && !isBreakActive && (freeSpins > 0 || credits >= bet)) {
+                  setAutoSpinActive(true);
+                  setStatusMessage("Auto spin started.");
+                }
+              }}
+              disabled={!canSpin}
+            >
+              Auto Spin
+            </button>
+          ) : (
+            <button
+              className={styles.controls__withdraw}
+              onClick={() => {
+                setAutoSpinActive(false);
+                setStatusMessage("Auto spin stopped.");
+              }}
+            >
+              Stop Auto Spin
+            </button>
+          )}
 
           <p className={styles.controls__status}>{statusMessage}</p>
         </div>

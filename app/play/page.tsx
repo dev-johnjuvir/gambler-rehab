@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { createIdleReels, createSpinResult, getSymbol, SLOT_CONFIG } from "@/lib/slot/engine";
+import {
+  createIdleReels,
+  createSpinResult,
+  getBonusSpinsForScatter,
+  getSymbol,
+  SLOT_CONFIG,
+} from "@/lib/slot/engine";
 import { sanitizePersistedState } from "@/lib/slot/state";
 import type { PersistedGameState, SpinResult, SymbolId } from "@/lib/slot/types";
 import styles from "../full-gambling/page.module.scss";
@@ -44,6 +50,8 @@ export default function PlayPage() {
   });
 
   const [spinning, setSpinning] = useState(false);
+  const [autoSpinActive, setAutoSpinActive] = useState(false);
+  const [freeSpins, setFreeSpins] = useState(0);
   const [rollingReels, setRollingReels] = useState<SymbolId[][] | null>(null);
   const [pendingResult, setPendingResult] = useState<SpinResult | null>(null);
   const [reelStopCount, setReelStopCount] = useState(0);
@@ -52,7 +60,7 @@ export default function PlayPage() {
 
   const idleReels = useMemo(() => createIdleReels(createSeededRandom(20260409)), []);
   const displayedReels = rollingReels ?? lastSpin?.reels ?? idleReels;
-  const canSpin = !spinning && credits >= bet;
+  const canSpin = !spinning && (freeSpins > 0 || credits >= bet);
 
   const winningCells = useMemo(() => {
     if (!lastSpin) return new Set<string>();
@@ -96,14 +104,15 @@ export default function PlayPage() {
   }, []);
 
   useEffect(() => {
-    if (!hydrated || spinning || credits > 0) return;
+    if (!hydrated || spinning || credits > 0 || freeSpins > 0) return;
     queueMicrotask(() => {
       setCredits(STARTING_CREDITS);
       setStats({ spins: 0, wins: 0, totalWon: 0, biggestWin: 0 });
       setLastSpin(null);
+      setAutoSpinActive(false);
       setStatusMessage("Reloaded ₱500. Keep spinning!");
     });
-  }, [credits, hydrated, spinning]);
+  }, [credits, freeSpins, hydrated, spinning]);
 
   const clearReelStopTimers = () => {
     reelStopTimersRef.current.forEach((t) => clearTimeout(t));
@@ -111,7 +120,10 @@ export default function PlayPage() {
   };
 
   const runSpin = useCallback(() => {
-    if (spinning || credits < bet) return;
+    if (spinning) return;
+
+    const usingFreeSpin = freeSpins > 0;
+    if (!usingFreeSpin && credits < bet) return;
 
     const preview = createSpinResult({ bet });
     const resolved = createSpinResult({ bet });
@@ -123,9 +135,14 @@ export default function PlayPage() {
     setPendingResult(resolved);
     setReelStopCount(0);
     setLastSpin(null);
-    setStatusMessage("Spinning...");
+    setStatusMessage(usingFreeSpin ? "Spinning a bonus spin..." : "Spinning...");
 
-    setCredits((c) => Math.max(0, c - bet));
+    if (usingFreeSpin) {
+      setFreeSpins((count) => Math.max(0, count - 1));
+    } else {
+      setCredits((c) => Math.max(0, c - bet));
+    }
+
     setStats((s) => ({ ...s, spins: s.spins + 1 }));
 
     reelStopTimersRef.current = Array.from({ length: SLOT_CONFIG.reels }, (_, i) =>
@@ -140,6 +157,16 @@ export default function PlayPage() {
       setPendingResult(null);
       setLastSpin(resolved);
 
+      const scatterCount = resolved.scatterWin?.count ?? 0;
+      const bonusSpinsAwarded = getBonusSpinsForScatter(scatterCount);
+      const nextCredits = Math.max(0, (usingFreeSpin ? credits : credits - bet) + resolved.totalPayout);
+      const nextFreeSpins = Math.max(0, freeSpins - (usingFreeSpin ? 1 : 0)) + bonusSpinsAwarded;
+      const shouldStopAuto = autoSpinActive && nextFreeSpins <= 0 && nextCredits < bet;
+
+      if (bonusSpinsAwarded > 0) {
+        setFreeSpins((count) => count + bonusSpinsAwarded);
+      }
+
       if (resolved.totalPayout > 0) {
         setCredits((c) => c + resolved.totalPayout);
         setStats((s) => ({
@@ -148,13 +175,74 @@ export default function PlayPage() {
           totalWon: s.totalWon + resolved.totalPayout,
           biggestWin: Math.max(s.biggestWin, resolved.totalPayout),
         }));
-        setStatusMessage(`Won ${formatPeso(resolved.totalPayout)}!`);
+
+        if (resolved.scatterWin && bonusSpinsAwarded > 0) {
+          setStatusMessage(
+            shouldStopAuto
+              ? `Won ${formatPeso(resolved.totalPayout)} (x${resolved.scatterWin.multiplier} scatter)! +${bonusSpinsAwarded} bonus spins. Auto spin stopped: not enough credits.`
+              : `Won ${formatPeso(resolved.totalPayout)} (x${resolved.scatterWin.multiplier} scatter)! +${bonusSpinsAwarded} bonus spins.`,
+          );
+          if (shouldStopAuto) {
+            setAutoSpinActive(false);
+          }
+          return;
+        }
+
+        if (resolved.scatterWin) {
+          setStatusMessage(
+            shouldStopAuto
+              ? `Won ${formatPeso(resolved.totalPayout)} (x${resolved.scatterWin.multiplier} scatter)! Auto spin stopped: not enough credits.`
+              : `Won ${formatPeso(resolved.totalPayout)} (x${resolved.scatterWin.multiplier} scatter)!`,
+          );
+          if (shouldStopAuto) {
+            setAutoSpinActive(false);
+          }
+          return;
+        }
+
+        setStatusMessage(
+          shouldStopAuto
+            ? `Won ${formatPeso(resolved.totalPayout)}! Auto spin stopped: not enough credits.`
+            : `Won ${formatPeso(resolved.totalPayout)}!`,
+        );
+        if (shouldStopAuto) {
+          setAutoSpinActive(false);
+        }
         return;
       }
 
-      setStatusMessage("No payout. Keep spinning!");
+      if (bonusSpinsAwarded > 0) {
+        setStatusMessage(
+          shouldStopAuto
+            ? `No payout, but +${bonusSpinsAwarded} bonus spins from scatter. Auto spin stopped: not enough credits.`
+            : `No payout, but +${bonusSpinsAwarded} bonus spins from scatter.`,
+        );
+        if (shouldStopAuto) {
+          setAutoSpinActive(false);
+        }
+        return;
+      }
+
+      setStatusMessage(
+        shouldStopAuto
+          ? "No payout. Auto spin stopped: not enough credits."
+          : "No payout. Keep spinning!",
+      );
+      if (shouldStopAuto) {
+        setAutoSpinActive(false);
+      }
     }, SPIN_DURATION_MS);
-  }, [bet, credits, spinning]);
+  }, [autoSpinActive, bet, credits, freeSpins, spinning]);
+
+  useEffect(() => {
+    if (!autoSpinActive || spinning || !canSpin) return;
+
+    const timer = setTimeout(() => {
+      runSpin();
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [autoSpinActive, canSpin, runSpin, spinning]);
 
   const handleBetChange = (nextBet: number) => {
     const clamped = Math.min(SLOT_CONFIG.maxBet, Math.max(SLOT_CONFIG.minBet, nextBet));
@@ -239,6 +327,11 @@ export default function PlayPage() {
             <p>Balance: {formatPeso(credits)}</p>
             <p>Bet: {formatPeso(bet)}</p>
             <p>Last win: {formatPeso(lastSpin?.totalPayout ?? 0)}</p>
+            <p>Bonus spins: {freeSpins}</p>
+            <p>
+              Last scatter multiplier: x
+              {lastSpin?.scatterWin?.multiplier ?? 0}
+            </p>
           </div>
 
           <div className={styles.controls__bets}>
@@ -259,6 +352,31 @@ export default function PlayPage() {
           <button className={styles.controls__spin} onClick={runSpin} disabled={!canSpin}>
             {spinning ? "Spinning..." : "Spin"}
           </button>
+
+          {!autoSpinActive ? (
+            <button
+              className={styles.controls__spin}
+              onClick={() => {
+                if (!spinning && (freeSpins > 0 || credits >= bet)) {
+                  setAutoSpinActive(true);
+                  setStatusMessage("Auto spin started.");
+                }
+              }}
+              disabled={!canSpin}
+            >
+              Auto Spin
+            </button>
+          ) : (
+            <button
+              className={styles.controls__withdraw}
+              onClick={() => {
+                setAutoSpinActive(false);
+                setStatusMessage("Auto spin stopped.");
+              }}
+            >
+              Stop Auto Spin
+            </button>
+          )}
 
           <p className={styles.controls__status}>{statusMessage}</p>
         </div>
