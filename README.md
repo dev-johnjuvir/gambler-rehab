@@ -1,36 +1,64 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Scatter Rehab
 
-## Getting Started
+Scatter Rehab is a Next.js Progressive Web App (PWA) that simulates a card-suit slot experience for entertainment and practice only.
 
-First, run the development server:
+Important: no real money is used or represented.
+
+## Features
+
+- 5 reels x 4 rows card-suit slot layout
+- Local-only virtual credits with persistent storage
+- Admin panel for direct credit injection in demo mode
+- Reel animations, line/scatter payouts, and session stats
+- Installable PWA with offline support after first successful load
+- Sass Modules with BEM-style class naming
+
+## Tech Stack
+
+- Next.js (App Router, TypeScript)
+- Sass for styling
+- next-pwa for service worker and offline shell
+- Vitest for unit tests
+
+## Local Development
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Start development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+3. Open http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Note: service worker is disabled in development and enabled in production builds.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Production Build
 
-## Learn More
+```bash
+npm run build
+npm run start
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Test
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run test
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## PWA Behavior
 
-## Deploy on Vercel
+- Manifest is served from `app/manifest.ts`
+- Offline fallback route: `/offline`
+- Install prompt appears when browser conditions are met
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Compliance and Scope
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- This app does not process payments.
+- This app does not involve real-money gambling.
+- Credits have no cash-out pathway and are stored only in browser local storage.

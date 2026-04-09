@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Scatter Rehab icon large">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f6fbff"/>
+      <stop offset="1" stop-color="#dbeffe"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <g fill="#1e6b9e" font-family="sans-serif" font-weight="700" text-anchor="middle">
+    <text x="256" y="232" font-size="170">&#9830;</text>
+    <text x="256" y="360" font-size="84">SR</text>
+  </g>
+</svg>
