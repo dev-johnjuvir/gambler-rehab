@@ -351,7 +351,10 @@ export default function FullGamblingPage() {
             </button>
           </div>
 
-          <button className={styles.controls__withdraw} onClick={() => void 0}>
+          <button
+            className={styles.controls__withdraw}
+            onClick={() => setStatusMessage("WALANG PUMAPALDO SA SUGAL, BRO. TIGIL MO NA YAN.")}
+          >
             Withdraw
           </button>
 
