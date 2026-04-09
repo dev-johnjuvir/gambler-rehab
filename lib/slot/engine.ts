@@ -64,7 +64,7 @@ export const SYMBOLS: SlotSymbol[] = [
     glyph: "\u2726",
     rank: null,
     suit: null,
-    weight: 14,
+    weight: 3,
   },
 ];
 
