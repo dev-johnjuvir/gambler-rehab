@@ -1,11 +1,13 @@
 import {
   type CardRank,
+  type CardSymbolId,
   type LineWin,
   type PersistedGameState,
   type SlotSymbol,
   type SpinConfig,
   type SpinResult,
   type SymbolId,
+  type WinningPosition,
 } from "./types";
 
 export const SLOT_CONFIG: SpinConfig = {
@@ -14,10 +16,10 @@ export const SLOT_CONFIG: SpinConfig = {
   minBet: 10,
   maxBet: 2000,
   defaultBet: 20,
-  defaultCredits: 1200,
+  defaultCredits: 500,
 };
 
-const CARD_RANKS: CardRank[] = ["A", "K", "Q", "J", "10", "9", "8", "7", "6", "5", "4", "3", "2"];
+const CARD_RANKS: CardRank[] = ["A", "K", "Q", "J", "10"];
 
 const RANK_LINE_PAYOUTS: Record<CardRank, Record<3 | 4 | 5, number>> = {
   A: { 3: 8, 4: 16, 5: 32 },
@@ -25,14 +27,6 @@ const RANK_LINE_PAYOUTS: Record<CardRank, Record<3 | 4 | 5, number>> = {
   Q: { 3: 6, 4: 12, 5: 24 },
   J: { 3: 5, 4: 10, 5: 20 },
   "10": { 3: 4, 4: 8, 5: 16 },
-  "9": { 3: 4, 4: 8, 5: 16 },
-  "8": { 3: 3, 4: 6, 5: 12 },
-  "7": { 3: 3, 4: 6, 5: 12 },
-  "6": { 3: 3, 4: 6, 5: 12 },
-  "5": { 3: 2, 4: 5, 5: 10 },
-  "4": { 3: 2, 4: 5, 5: 10 },
-  "3": { 3: 2, 4: 5, 5: 10 },
-  "2": { 3: 2, 4: 5, 5: 10 },
 };
 
 const RANK_WEIGHTS: Record<CardRank, number> = {
@@ -41,14 +35,6 @@ const RANK_WEIGHTS: Record<CardRank, number> = {
   Q: 6,
   J: 7,
   "10": 9,
-  "9": 11,
-  "8": 13,
-  "7": 15,
-  "6": 17,
-  "5": 19,
-  "4": 21,
-  "3": 23,
-  "2": 25,
 };
 
 const SUITS = [
@@ -94,30 +80,6 @@ const BONUS_SPINS_BY_SCATTER: Partial<Record<number, number>> = {
   5: 12,
 };
 
-export const PAYLINES: number[][] = [
-  [0, 0, 0, 0, 0],
-  [1, 1, 1, 1, 1],
-  [2, 2, 2, 2, 2],
-  [3, 3, 3, 3, 3],
-  [0, 1, 2, 1, 0],
-  [3, 2, 1, 2, 3],
-  [1, 0, 0, 0, 1],
-  [2, 3, 3, 3, 2],
-  [0, 0, 1, 2, 3],
-  [3, 3, 2, 1, 0],
-  [1, 2, 3, 2, 1],
-  [2, 1, 0, 1, 2],
-  [0, 1, 1, 1, 0],
-  [3, 2, 2, 2, 3],
-  [1, 2, 2, 2, 1],
-  [2, 2, 1, 0, 0],
-  [1, 1, 2, 3, 3],
-  [0, 1, 0, 1, 0],
-  [3, 2, 3, 2, 3],
-  [0, 2, 3, 2, 0],
-  [3, 1, 0, 1, 3],
-];
-
 const DEFAULT_GAME_STATE: PersistedGameState = {
   credits: SLOT_CONFIG.defaultCredits,
   bet: SLOT_CONFIG.defaultBet,
@@ -155,13 +117,10 @@ export function createSpinResult({
   random?: () => number;
 }): SpinResult {
   const reels = createReels(SLOT_CONFIG.reels, SLOT_CONFIG.rows, random);
+  const lineWins = evaluateExactCardWins(reels, bet);
 
-  const lineWins = PAYLINES.flatMap((line, lineIndex) => {
-    const evaluated = evaluatePayline(reels, line, bet, lineIndex);
-    return evaluated ? [evaluated] : [];
-  });
-
-  const scatterCount = reels.flat().filter((symbol) => symbol === "crown").length;
+  const scatterPositions = getMatchingPositions(reels, "crown");
+  const scatterCount = scatterPositions.length;
   const scatterMultiplier = SCATTER_MULTIPLIERS[Math.min(scatterCount, 5)] ?? 0;
   const scatterWin =
     scatterMultiplier > 0
@@ -170,6 +129,7 @@ export function createSpinResult({
           count: scatterCount,
           multiplier: scatterMultiplier,
           payout: scatterMultiplier * bet,
+          positions: scatterPositions,
         }
       : null;
 
@@ -190,50 +150,52 @@ export function getBonusSpinsForScatter(scatterCount: number): number {
   return BONUS_SPINS_BY_SCATTER[normalizedCount] ?? 0;
 }
 
-function evaluatePayline(
-  reels: SymbolId[][],
-  line: number[],
-  bet: number,
-  lineIndex: number,
-): LineWin | null {
-  const firstSymbol = reels[0]?.[line[0]];
-  const firstMeta = firstSymbol ? getSymbol(firstSymbol) : null;
+function evaluateExactCardWins(reels: SymbolId[][], bet: number): LineWin[] {
+  return CARD_SYMBOLS.flatMap((symbol) => {
+    const reelMatches: WinningPosition[] = [];
+    let consecutiveReels = 0;
 
-  if (!firstMeta || firstMeta.id === "crown" || !firstMeta.rank) {
-    return null;
-  }
+    for (let reelIndex = 0; reelIndex < reels.length; reelIndex += 1) {
+      const rowMatches = reels[reelIndex]
+        ?.map((currentSymbol, rowIndex) =>
+          currentSymbol === symbol.id ? { reelIndex, rowIndex } : null,
+        )
+        .filter((position): position is WinningPosition => position !== null);
 
-  let count = 1;
+      if (!rowMatches || rowMatches.length === 0) {
+        break;
+      }
 
-  for (let reel = 1; reel < reels.length; reel += 1) {
-    const current = reels[reel]?.[line[reel]];
-    const currentMeta = current ? getSymbol(current) : null;
-
-    if (currentMeta && currentMeta.id !== "crown" && currentMeta.rank === firstMeta.rank) {
-      count += 1;
-      continue;
+      consecutiveReels += 1;
+      reelMatches.push(...rowMatches);
     }
 
-    break;
-  }
+    if (consecutiveReels < 3) {
+      return [];
+    }
 
-  if (count < 3) {
-    return null;
-  }
+    const multiplier = symbol.linePayouts?.[consecutiveReels as 3 | 4 | 5] ?? 0;
 
-  const multiplier = firstMeta.linePayouts?.[count as 3 | 4 | 5] ?? 0;
+    if (multiplier <= 0) {
+      return [];
+    }
 
-  if (multiplier <= 0) {
-    return null;
-  }
+    return [
+      {
+        symbol: symbol.id as CardSymbolId,
+        count: consecutiveReels,
+        multiplier,
+        payout: bet * multiplier,
+        positions: reelMatches,
+      },
+    ];
+  });
+}
 
-  return {
-    lineIndex,
-    rank: firstMeta.rank,
-    count,
-    multiplier,
-    payout: bet * multiplier,
-  };
+function getMatchingPositions(reels: SymbolId[][], symbolId: SymbolId): WinningPosition[] {
+  return reels.flatMap((reel, reelIndex) =>
+    reel.flatMap((symbol, rowIndex) => (symbol === symbolId ? [{ reelIndex, rowIndex }] : [])),
+  );
 }
 
 function createReels(reels: number, rows: number, random: () => number): SymbolId[][] {

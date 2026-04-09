@@ -48,6 +48,15 @@ const SESSION_BREAK_AFTER_MINUTES = 12;
 const FORCED_BREAK_MS = 2 * 60 * 1000;
 const HIGH_URGE_THRESHOLD = 4;
 
+function createSeededRandom(seed: number): () => number {
+  let value = seed;
+
+  return () => {
+    value = (value * 1664525 + 1013904223) % 4294967296;
+    return value / 4294967296;
+  };
+}
+
 export default function Home() {
   const spinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bonusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -91,7 +100,7 @@ export default function Home() {
   const [moodInput, setMoodInput] = useState("steady");
   const [noteInput, setNoteInput] = useState("");
 
-  const idleReels = useMemo(() => createIdleReels(), []);
+  const idleReels = useMemo(() => createIdleReels(createSeededRandom(20260409)), []);
   const displayedReels = rollingReels ?? lastSpin?.reels ?? idleReels;
   const isBonusRoundActive = bonusSpinsRemaining > 0;
   const breakEndsAt = recovery.breakUntil ? new Date(recovery.breakUntil).getTime() : null;
@@ -102,6 +111,18 @@ export default function Home() {
   const sessionElapsedMinutes = Math.floor((clockNow - sessionStartedAt) / 60000);
   const sessionNetChange = credits - sessionStartingCredits;
   const breakSecondsRemaining = breakEndsAt ? Math.max(0, Math.ceil((breakEndsAt - clockNow) / 1000)) : 0;
+  const winningCells = useMemo(() => {
+    if (!lastSpin) {
+      return new Set<string>();
+    }
+
+    const positions = [
+      ...lastSpin.lineWins.flatMap((lineWin) => lineWin.positions),
+      ...(lastSpin.scatterWin?.positions ?? []),
+    ];
+
+    return new Set(positions.map(({ reelIndex, rowIndex }) => `${reelIndex}:${rowIndex}`));
+  }, [lastSpin]);
   const leaderboardView = useMemo(() => {
     if (!profile) {
       return leaderboard;
@@ -616,11 +637,16 @@ export default function Home() {
                     >
                       {symbolsForTrack.map((symbol, rowIndex) => {
                         const symbolMeta = getSymbol(symbol);
+                        const normalizedRowIndex = rowIndex % SLOT_CONFIG.rows;
+                        const isWinningCell = !spinning && winningCells.has(`${reelIndex}:${normalizedRowIndex}`);
 
                         return (
                           <div
                             key={`cell-${reelIndex}-${rowIndex}`}
-                            className={styles.reel__cell}
+                            className={clsx(
+                              styles.reel__cell,
+                              isWinningCell && styles["reel__cell--win"],
+                            )}
                             data-symbol={symbol}
                             data-suit={symbolMeta.suit ?? "none"}
                           >
@@ -642,9 +668,8 @@ export default function Home() {
               {lastSpin.lineWins.length > 0 ? (
                 <ul className={styles.board__winList}>
                   {lastSpin.lineWins.map((lineWin) => (
-                    <li key={`line-${lineWin.lineIndex}`}>
-                      Line {lineWin.lineIndex + 1}: {lineWin.count}x rank {lineWin.rank} ({" "}
-                      {lineWin.multiplier}x)
+                    <li key={`line-${lineWin.symbol}`}>
+                      {getSymbol(lineWin.symbol).label}: on {lineWin.count} reels ({lineWin.multiplier}x)
                     </li>
                   ))}
                 </ul>

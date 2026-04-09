@@ -1,5 +1,5 @@
 export type SuitId = "hearts" | "diamonds" | "clubs" | "spades";
-export type CardRank = "A" | "K" | "Q" | "J" | "10" | "9" | "8" | "7" | "6" | "5" | "4" | "3" | "2";
+export type CardRank = "A" | "K" | "Q" | "J" | "10";
 export type CardSymbolId = `${CardRank}_${SuitId}`;
 export type SymbolId = CardSymbolId | "crown";
 
@@ -13,12 +13,17 @@ export interface SlotSymbol {
   linePayouts?: Partial<Record<3 | 4 | 5, number>>;
 }
 
+export interface WinningPosition {
+  reelIndex: number;
+  rowIndex: number;
+}
+
 export interface LineWin {
-  lineIndex: number;
-  rank: CardRank;
+  symbol: CardSymbolId;
   count: number;
   multiplier: number;
   payout: number;
+  positions: WinningPosition[];
 }
 
 export interface ScatterWin {
@@ -26,6 +31,7 @@ export interface ScatterWin {
   count: number;
   multiplier: number;
   payout: number;
+  positions: WinningPosition[];
 }
 
 export interface SpinResult {
