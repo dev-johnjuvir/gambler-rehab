@@ -20,6 +20,73 @@ const REEL_STOP_GAP_MS = 260;
 const PLAY_STORAGE_KEY = "scatter-rehab/play-state/v1";
 const STARTING_CREDITS = 500;
 
+type BrowserAudioContext = typeof AudioContext;
+
+function createNoiseBuffer(audioContext: AudioContext, durationSeconds: number): AudioBuffer {
+  const frameCount = Math.max(1, Math.floor(audioContext.sampleRate * durationSeconds));
+  const buffer = audioContext.createBuffer(1, frameCount, audioContext.sampleRate);
+  const channelData = buffer.getChannelData(0);
+
+  for (let i = 0; i < frameCount; i += 1) {
+    channelData[i] = Math.random() * 2 - 1;
+  }
+
+  return buffer;
+}
+
+function playKaChingSound(audioContext: AudioContext): void {
+  const now = audioContext.currentTime + 0.01;
+  const master = audioContext.createGain();
+  master.connect(audioContext.destination);
+  master.gain.setValueAtTime(0.0001, now);
+  master.gain.exponentialRampToValueAtTime(0.22, now + 0.02);
+  master.gain.exponentialRampToValueAtTime(0.0001, now + 0.62);
+
+  const coinTone = audioContext.createOscillator();
+  coinTone.type = "triangle";
+  coinTone.frequency.setValueAtTime(880, now);
+  coinTone.frequency.exponentialRampToValueAtTime(1480, now + 0.08);
+  coinTone.frequency.exponentialRampToValueAtTime(1960, now + 0.2);
+
+  const sparkleTone = audioContext.createOscillator();
+  sparkleTone.type = "sine";
+  sparkleTone.frequency.setValueAtTime(1320, now + 0.03);
+  sparkleTone.frequency.exponentialRampToValueAtTime(2640, now + 0.18);
+
+  const toneGain = audioContext.createGain();
+  toneGain.gain.setValueAtTime(0.0001, now);
+  toneGain.gain.exponentialRampToValueAtTime(0.28, now + 0.02);
+  toneGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+
+  coinTone.connect(toneGain);
+  sparkleTone.connect(toneGain);
+  toneGain.connect(master);
+
+  const noise = audioContext.createBufferSource();
+  noise.buffer = createNoiseBuffer(audioContext, 0.08);
+
+  const noiseFilter = audioContext.createBiquadFilter();
+  noiseFilter.type = "bandpass";
+  noiseFilter.frequency.setValueAtTime(2400, now);
+  noiseFilter.Q.setValueAtTime(0.9, now);
+
+  const noiseGain = audioContext.createGain();
+  noiseGain.gain.setValueAtTime(0.1, now);
+  noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+
+  noise.connect(noiseFilter);
+  noiseFilter.connect(noiseGain);
+  noiseGain.connect(master);
+
+  coinTone.start(now);
+  sparkleTone.start(now + 0.03);
+  noise.start(now);
+
+  coinTone.stop(now + 0.25);
+  sparkleTone.stop(now + 0.25);
+  noise.stop(now + 0.08);
+}
+
 function createSeededRandom(seed: number): () => number {
   let value = seed;
   return () => {
@@ -37,6 +104,7 @@ function formatPeso(value: number): string {
 }
 
 export default function PlayPage() {
+  const audioContextRef = useRef<AudioContext | null>(null);
   const spinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reelStopTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -103,6 +171,10 @@ export default function PlayPage() {
     return () => {
       if (spinTimeoutRef.current) clearTimeout(spinTimeoutRef.current);
       reelStopTimersRef.current.forEach((t) => clearTimeout(t));
+      const audioContext = audioContextRef.current;
+      if (audioContext && audioContext.state !== "closed") {
+        void audioContext.close();
+      }
     };
   }, []);
 
@@ -122,6 +194,29 @@ export default function PlayPage() {
     reelStopTimersRef.current.forEach((t) => clearTimeout(t));
     reelStopTimersRef.current = [];
   };
+
+  const playWinSound = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    const BrowserAudioContextCtor = (
+      window.AudioContext ??
+      (window as Window & { webkitAudioContext?: BrowserAudioContext }).webkitAudioContext
+    );
+
+    if (!BrowserAudioContextCtor) return;
+
+    const audioContext = audioContextRef.current ?? new BrowserAudioContextCtor();
+    audioContextRef.current = audioContext;
+
+    if (audioContext.state === "suspended") {
+      void audioContext.resume().then(() => {
+        playKaChingSound(audioContext);
+      });
+      return;
+    }
+
+    playKaChingSound(audioContext);
+  }, []);
 
   const runSpin = useCallback(() => {
     if (spinning) return;
@@ -175,6 +270,7 @@ export default function PlayPage() {
       }
 
       if (resolved.totalPayout > 0) {
+        playWinSound();
         setCredits((c) => c + resolved.totalPayout);
         setStats((s) => ({
           ...s,
@@ -239,7 +335,7 @@ export default function PlayPage() {
         setAutoSpinActive(false);
       }
     }, SPIN_DURATION_MS);
-  }, [autoSpinActive, bet, credits, freeSpins, spinning]);
+  }, [autoSpinActive, bet, credits, freeSpins, playWinSound, spinning]);
 
   useEffect(() => {
     if (!autoSpinRunning || spinning || !canSpin) return;
