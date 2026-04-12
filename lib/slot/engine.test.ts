@@ -65,4 +65,40 @@ describe("slot engine", () => {
     expect(bonusSpin.lineWins[0]?.symbol).toBe("A_hearts");
     expect(bonusSpin.totalPayout).toBeGreaterThan(defaultSpin.totalPayout);
   });
+
+  it("applies scatter multiplier to line wins during bonus spins", () => {
+    const sequence = [
+      0.01, 0.99, 0.99, 0.99,
+      0.01, 0.99, 0.99, 0.99,
+      0.01, 0.99, 0.99, 0.99,
+      0.01, 0.99, 0.99, 0.99,
+      0.01, 0.99, 0.99, 0.99,
+    ];
+
+    let pointer = 0;
+    const scriptedRandom = () => {
+      const value = sequence[pointer] ?? 0.99;
+      pointer += 1;
+      return value;
+    };
+
+    pointer = 0;
+    const defaultSpin = createSpinResult({
+      bet: 10,
+      mode: "default",
+      random: scriptedRandom,
+    });
+
+    pointer = 0;
+    const bonusSpin = createSpinResult({
+      bet: 10,
+      mode: "bonus",
+      random: scriptedRandom,
+    });
+
+    expect(defaultSpin.scatterWin?.multiplier).toBe(40);
+    expect(defaultSpin.totalPayout).toBe(720);
+    expect(bonusSpin.totalPayout).toBe(13200);
+    expect(bonusSpin.totalPayout).toBeGreaterThan(defaultSpin.totalPayout);
+  });
 });

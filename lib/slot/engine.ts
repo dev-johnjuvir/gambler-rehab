@@ -79,23 +79,27 @@ export const BONUS_SPIN_COUNT = 10;
 const BONUS_TRIGGER_SCATTER_COUNT = 3;
 
 const BONUS_WEIGHT_BY_SYMBOL: Partial<Record<SymbolId, number>> = {
-  A_hearts: 5,
-  A_diamonds: 5,
-  A_clubs: 5,
-  A_spades: 5,
-  K_hearts: 6,
-  K_diamonds: 6,
-  K_clubs: 6,
-  K_spades: 6,
-  Q_hearts: 7,
-  Q_diamonds: 7,
-  Q_clubs: 7,
-  Q_spades: 7,
-  "10_hearts": 8,
-  "10_diamonds": 8,
-  "10_clubs": 8,
-  "10_spades": 8,
-  crown: 6,
+  A_hearts: 8,
+  A_diamonds: 8,
+  A_clubs: 8,
+  A_spades: 8,
+  K_hearts: 9,
+  K_diamonds: 9,
+  K_clubs: 9,
+  K_spades: 9,
+  Q_hearts: 10,
+  Q_diamonds: 10,
+  Q_clubs: 10,
+  Q_spades: 10,
+  J_hearts: 9,
+  J_diamonds: 9,
+  J_clubs: 9,
+  J_spades: 9,
+  "10_hearts": 10,
+  "10_diamonds": 10,
+  "10_clubs": 10,
+  "10_spades": 10,
+  crown: 2,
 };
 
 const DEFAULT_GAME_STATE: PersistedGameState = {
@@ -153,7 +157,9 @@ export function createSpinResult({
       : null;
 
   const lineTotal = lineWins.reduce((sum, lineWin) => sum + lineWin.payout, 0);
-  const totalPayout = lineTotal + (scatterWin?.payout ?? 0);
+  const lineTotalWithScatterBoost =
+    mode === "bonus" && scatterMultiplier > 0 ? lineTotal * scatterMultiplier : lineTotal;
+  const totalPayout = lineTotalWithScatterBoost + (scatterWin?.payout ?? 0);
 
   return {
     reels,
