@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import {
+  BONUS_SPIN_COUNT,
   createIdleReels,
   createSpinResult,
   getBonusSpinsForScatter,
@@ -52,6 +53,7 @@ export default function PlayPage() {
   const [spinning, setSpinning] = useState(false);
   const [autoSpinActive, setAutoSpinActive] = useState(false);
   const [freeSpins, setFreeSpins] = useState(0);
+  const [bonusAutoSpinsRemaining, setBonusAutoSpinsRemaining] = useState(0);
   const [rollingReels, setRollingReels] = useState<SymbolId[][] | null>(null);
   const [pendingResult, setPendingResult] = useState<SpinResult | null>(null);
   const [reelStopCount, setReelStopCount] = useState(0);
@@ -61,6 +63,7 @@ export default function PlayPage() {
   const idleReels = useMemo(() => createIdleReels(createSeededRandom(20260409)), []);
   const displayedReels = rollingReels ?? lastSpin?.reels ?? idleReels;
   const canSpin = !spinning && (freeSpins > 0 || credits >= bet);
+  const autoSpinRunning = autoSpinActive || bonusAutoSpinsRemaining > 0;
 
   const winningCells = useMemo(() => {
     if (!lastSpin) return new Set<string>();
@@ -110,6 +113,7 @@ export default function PlayPage() {
       setStats({ spins: 0, wins: 0, totalWon: 0, biggestWin: 0 });
       setLastSpin(null);
       setAutoSpinActive(false);
+      setBonusAutoSpinsRemaining(0);
       setStatusMessage("Reloaded ₱500. Keep spinning!");
     });
   }, [credits, freeSpins, hydrated, spinning]);
@@ -125,8 +129,9 @@ export default function PlayPage() {
     const usingFreeSpin = freeSpins > 0;
     if (!usingFreeSpin && credits < bet) return;
 
-    const preview = createSpinResult({ bet });
-    const resolved = createSpinResult({ bet });
+    const spinMode = usingFreeSpin ? "bonus" : "default";
+    const preview = createSpinResult({ bet, mode: spinMode });
+    const resolved = createSpinResult({ bet, mode: spinMode });
 
     clearReelStopTimers();
 
@@ -139,6 +144,7 @@ export default function PlayPage() {
 
     if (usingFreeSpin) {
       setFreeSpins((count) => Math.max(0, count - 1));
+      setBonusAutoSpinsRemaining((count) => Math.max(0, count - 1));
     } else {
       setCredits((c) => Math.max(0, c - bet));
     }
@@ -165,6 +171,7 @@ export default function PlayPage() {
 
       if (bonusSpinsAwarded > 0) {
         setFreeSpins((count) => count + bonusSpinsAwarded);
+        setBonusAutoSpinsRemaining((count) => count + bonusSpinsAwarded);
       }
 
       if (resolved.totalPayout > 0) {
@@ -179,8 +186,8 @@ export default function PlayPage() {
         if (resolved.scatterWin && bonusSpinsAwarded > 0) {
           setStatusMessage(
             shouldStopAuto
-              ? `Won ${formatPeso(resolved.totalPayout)} (x${resolved.scatterWin.multiplier} scatter)! +${bonusSpinsAwarded} bonus spins. Auto spin stopped: not enough credits.`
-              : `Won ${formatPeso(resolved.totalPayout)} (x${resolved.scatterWin.multiplier} scatter)! +${bonusSpinsAwarded} bonus spins.`,
+              ? `Won ${formatPeso(resolved.totalPayout)} (x${resolved.scatterWin.multiplier} scatter)! ${BONUS_SPIN_COUNT} bonus auto spins activated. Auto spin stopped: not enough credits.`
+              : `Won ${formatPeso(resolved.totalPayout)} (x${resolved.scatterWin.multiplier} scatter)! ${BONUS_SPIN_COUNT} bonus auto spins activated.`,
           );
           if (shouldStopAuto) {
             setAutoSpinActive(false);
@@ -214,8 +221,8 @@ export default function PlayPage() {
       if (bonusSpinsAwarded > 0) {
         setStatusMessage(
           shouldStopAuto
-            ? `No payout, but +${bonusSpinsAwarded} bonus spins from scatter. Auto spin stopped: not enough credits.`
-            : `No payout, but +${bonusSpinsAwarded} bonus spins from scatter.`,
+            ? `${BONUS_SPIN_COUNT} bonus auto spins activated from scatter. Auto spin stopped: not enough credits.`
+            : `${BONUS_SPIN_COUNT} bonus auto spins activated from scatter.`,
         );
         if (shouldStopAuto) {
           setAutoSpinActive(false);
@@ -235,14 +242,14 @@ export default function PlayPage() {
   }, [autoSpinActive, bet, credits, freeSpins, spinning]);
 
   useEffect(() => {
-    if (!autoSpinActive || spinning || !canSpin) return;
+    if (!autoSpinRunning || spinning || !canSpin) return;
 
     const timer = setTimeout(() => {
       runSpin();
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [autoSpinActive, canSpin, runSpin, spinning]);
+  }, [autoSpinRunning, canSpin, runSpin, spinning]);
 
   const handleBetChange = (nextBet: number) => {
     const clamped = Math.min(SLOT_CONFIG.maxBet, Math.max(SLOT_CONFIG.minBet, nextBet));
@@ -353,7 +360,7 @@ export default function PlayPage() {
             {spinning ? "Spinning..." : "Spin"}
           </button>
 
-          {!autoSpinActive ? (
+          {!autoSpinRunning ? (
             <button
               className={styles.controls__spin}
               onClick={() => {
@@ -371,7 +378,10 @@ export default function PlayPage() {
               className={styles.controls__withdraw}
               onClick={() => {
                 setAutoSpinActive(false);
-                setStatusMessage("Auto spin stopped.");
+                setBonusAutoSpinsRemaining(0);
+                setStatusMessage(
+                  freeSpins > 0 ? "Auto spin stopped. Bonus spins are still available." : "Auto spin stopped.",
+                );
               }}
             >
               Stop Auto Spin

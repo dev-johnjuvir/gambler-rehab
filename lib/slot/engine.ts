@@ -3,6 +3,7 @@ import {
   type CardSymbolId,
   type LineWin,
   type PersistedGameState,
+  type SpinMode,
   type SlotSymbol,
   type SpinConfig,
   type SpinResult,
@@ -74,10 +75,27 @@ const SCATTER_MULTIPLIERS: Partial<Record<number, number>> = {
   5: 40,
 };
 
-const BONUS_SPINS_BY_SCATTER: Partial<Record<number, number>> = {
-  3: 5,
-  4: 8,
-  5: 12,
+export const BONUS_SPIN_COUNT = 10;
+const BONUS_TRIGGER_SCATTER_COUNT = 3;
+
+const BONUS_WEIGHT_BY_SYMBOL: Partial<Record<SymbolId, number>> = {
+  A_hearts: 5,
+  A_diamonds: 5,
+  A_clubs: 5,
+  A_spades: 5,
+  K_hearts: 6,
+  K_diamonds: 6,
+  K_clubs: 6,
+  K_spades: 6,
+  Q_hearts: 7,
+  Q_diamonds: 7,
+  Q_clubs: 7,
+  Q_spades: 7,
+  "10_hearts": 8,
+  "10_diamonds": 8,
+  "10_clubs": 8,
+  "10_spades": 8,
+  crown: 6,
 };
 
 const DEFAULT_GAME_STATE: PersistedGameState = {
@@ -91,9 +109,8 @@ const DEFAULT_GAME_STATE: PersistedGameState = {
   },
 };
 
-const weightedSymbolPool = SYMBOLS.flatMap((symbol) =>
-  Array.from({ length: symbol.weight }, () => symbol.id),
-);
+const DEFAULT_WEIGHTED_SYMBOL_POOL = createWeightedSymbolPool("default");
+const BONUS_WEIGHTED_SYMBOL_POOL = createWeightedSymbolPool("bonus");
 
 const byId = new Map(SYMBOLS.map((symbol) => [symbol.id, symbol]));
 
@@ -106,17 +123,19 @@ export function getSymbol(id: SymbolId): SlotSymbol {
 }
 
 export function createIdleReels(random: () => number = Math.random): SymbolId[][] {
-  return createReels(SLOT_CONFIG.reels, SLOT_CONFIG.rows, random);
+  return createReels(SLOT_CONFIG.reels, SLOT_CONFIG.rows, random, "default");
 }
 
 export function createSpinResult({
   bet,
+  mode = "default",
   random = Math.random,
 }: {
   bet: number;
+  mode?: SpinMode;
   random?: () => number;
 }): SpinResult {
-  const reels = createReels(SLOT_CONFIG.reels, SLOT_CONFIG.rows, random);
+  const reels = createReels(SLOT_CONFIG.reels, SLOT_CONFIG.rows, random, mode);
   const lineWins = evaluateExactCardWins(reels, bet);
 
   const scatterPositions = getMatchingPositions(reels, "crown");
@@ -147,7 +166,7 @@ export function createSpinResult({
 
 export function getBonusSpinsForScatter(scatterCount: number): number {
   const normalizedCount = Math.min(Math.max(Math.floor(scatterCount), 0), 5);
-  return BONUS_SPINS_BY_SCATTER[normalizedCount] ?? 0;
+  return normalizedCount >= BONUS_TRIGGER_SCATTER_COUNT ? BONUS_SPIN_COUNT : 0;
 }
 
 function evaluateExactCardWins(reels: SymbolId[][], bet: number): LineWin[] {
@@ -198,13 +217,21 @@ function getMatchingPositions(reels: SymbolId[][], symbolId: SymbolId): WinningP
   );
 }
 
-function createReels(reels: number, rows: number, random: () => number): SymbolId[][] {
+function createReels(reels: number, rows: number, random: () => number, mode: SpinMode): SymbolId[][] {
   return Array.from({ length: reels }, () =>
-    Array.from({ length: rows }, () => pickSymbol(random)),
+    Array.from({ length: rows }, () => pickSymbol(random, mode)),
   );
 }
 
-function pickSymbol(random: () => number): SymbolId {
+function createWeightedSymbolPool(mode: SpinMode): SymbolId[] {
+  return SYMBOLS.flatMap((symbol) => {
+    const weight = mode === "bonus" ? (BONUS_WEIGHT_BY_SYMBOL[symbol.id] ?? symbol.weight) : symbol.weight;
+    return Array.from({ length: weight }, () => symbol.id);
+  });
+}
+
+function pickSymbol(random: () => number, mode: SpinMode): SymbolId {
+  const weightedSymbolPool = mode === "bonus" ? BONUS_WEIGHTED_SYMBOL_POOL : DEFAULT_WEIGHTED_SYMBOL_POOL;
   const raw = Math.floor(random() * weightedSymbolPool.length);
   const index = Math.min(Math.max(raw, 0), weightedSymbolPool.length - 1);
   return weightedSymbolPool[index] as SymbolId;

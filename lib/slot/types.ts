@@ -42,6 +42,8 @@ export interface SpinResult {
   totalPayout: number;
 }
 
+export type SpinMode = "default" | "bonus";
+
 export interface SpinConfig {
   reels: number;
   rows: number;
